@@ -1,5 +1,6 @@
 use axum::{Json, Router, routing::get};
 use serde_json::json;
+use tracing::{error, info};
 
 use crate::config::Config;
 
@@ -18,8 +19,8 @@ async fn health() -> Json<serde_json::Value> {
 async fn shutdown_signal() {
     let ctrl_c = async {
         match tokio::signal::ctrl_c().await {
-            Ok(()) => println!("received SIGINT, shutting down"),
-            Err(err) => eprintln!("failed to listen for SIGINT: {err}"),
+            Ok(()) => info!("received SIGINT, shutting down"),
+            Err(err) => error!(error = %err, "failed to listen for SIGINT"),
         }
     };
 
@@ -29,9 +30,9 @@ async fn shutdown_signal() {
         match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
             Ok(mut sig) => {
                 sig.recv().await;
-                println!("received SIGTERM, shutting down");
+                info!("received SIGTERM, shutting down");
             }
-            Err(err) => eprintln!("failed to listen for SIGTERM: {err}"),
+            Err(err) => error!(error = %err, "failed to listen for SIGTERM"),
         }
     };
 
@@ -47,7 +48,7 @@ async fn shutdown_signal() {
 pub async fn serve(config: &Config) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(config.bind_addr()).await?;
 
-    println!("listening on http://{}", config.bind_addr());
+    info!(addr = %config.bind_addr(), "server listening");
 
     axum::serve(listener, router())
         .with_graceful_shutdown(shutdown_signal())
