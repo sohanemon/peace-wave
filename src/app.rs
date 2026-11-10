@@ -1,6 +1,14 @@
-use axum::{Json, Router, routing::get};
+use std::time::Duration;
+
+use axum::{
+    Json, Router,
+    body::Body,
+    http::{Request, Response},
+    routing::get,
+};
 use serde_json::json;
-use tracing::{error, info};
+use tower_http::trace::TraceLayer;
+use tracing::{Span, debug_span, error, info, warn};
 
 use crate::config::Config;
 use crate::error::AppError;
@@ -11,6 +19,42 @@ pub fn router() -> Router {
         .route("/", get(health))
         .nest("/v1", routes::api_router())
         .fallback(not_found)
+        // NOTE: covers every route added above, including fallback and nested /v1
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &Request<Body>| {
+                    // SECURITY: only non-sensitive request metadata enters span fields
+                    debug_span!(
+                        "http request",
+                        method = %request.method(),
+                        uri = %request.uri(),
+                        version = ?request.version(),
+                    )
+                })
+                .on_request(|request: &Request<Body>, _span: &Span| {
+                    // SECURITY: only non-sensitive request metadata is logged
+                    info!(
+                        method = %request.method(),
+                        uri = %request.uri(),
+                        version = ?request.version(),
+                        "request started",
+                    );
+                })
+                .on_response(
+                    |response: &Response<Body>, latency: Duration, _span: &Span| {
+                        let status = response.status().as_u16();
+                        let latency_ms = latency.as_millis();
+
+                        if response.status().is_server_error() {
+                            error!(status, latency_ms, "request finished");
+                        } else if response.status().is_client_error() {
+                            warn!(status, latency_ms, "request finished");
+                        } else {
+                            info!(status, latency_ms, "request finished");
+                        }
+                    },
+                ),
+        )
 }
 
 // NOTE: JSON-shaped 404 via AppError; axum's default fallback body is empty
