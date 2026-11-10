@@ -14,7 +14,7 @@ Responsibilities (planned): Quran wallpapers and metadata, categories/tags/colle
 - Utoipa (OpenAPI)
 - tracing
 
-**Do not assume every dependency is installed or every feature exists.** Introduce dependencies only when the corresponding feature is actually implemented. Current dependencies: `axum`, `tokio` (`macros`, `rt-multi-thread`, `signal`), `serde_json`.
+**Do not assume every dependency is installed or every feature exists.** Introduce dependencies only when the corresponding feature is actually implemented. Current dependencies: `axum`, `tokio` (`macros`, `rt-multi-thread`, `signal`), `serde_json`, `dotenvy`.
 
 ## 1. Architecture principles
 
@@ -47,44 +47,52 @@ peace-wave/
     ├── main.rs
     ├── lib.rs
     ├── app.rs
-    ├── config/
-    │   └── mod.rs
+    ├── config.rs
     ├── state.rs
     ├── error.rs
+    ├── routes.rs
     ├── routes/
-    │   ├── mod.rs
     │   ├── health.rs
     │   └── wallpapers.rs
+    ├── wallpaper.rs
     ├── wallpaper/
-    │   ├── mod.rs
     │   ├── model.rs
     │   ├── service.rs
     │   └── repository.rs
+    ├── category.rs
     ├── category/
-    │   ├── mod.rs
     │   ├── model.rs
     │   ├── service.rs
     │   └── repository.rs
+    ├── storage.rs
     ├── storage/
-    │   ├── mod.rs
     │   └── r2.rs
+    ├── infrastructure.rs
     └── infrastructure/
-        ├── mod.rs
         └── database.rs
 ```
+
+### Module declaration style
+
+**Rust 2018+ layout — no `mod.rs` files.** `mod.rs` is pre-2018 style; avoid it.
+
+- Module file shares the module name: `config.rs`, not `config/mod.rs`.
+- Submodules live in a same-named sibling directory: `routes.rs` declares `pub mod health;` with the file at `routes/health.rs`.
+- `mod` declarations go at the top of the parent module file.
+- A domain with no submodules is a single file (`state.rs`); add the sibling directory only when the module actually grows submodules. A leaf `.rs` file (e.g. `category.rs`) is preferred over `category/mod.rs` until subdividing is justified.
 
 ## 3. File and module responsibilities
 
 - `main.rs` — entry point, server startup only.
 - `lib.rs` — library root, public module declarations.
 - `app.rs` — router construction and route composition.
-- `config/` — environment-based configuration.
+- `config.rs` — environment-based application configuration.
 - `state.rs` — shared application state and dependencies.
 - `error.rs` — application errors + HTTP error conversion.
-- `routes/` — HTTP routing and request/response handlers.
-- Domain modules (`wallpaper/`, `category/`) — models, business logic, repository implementations.
-- `storage/` — object storage integrations (Cloudflare R2).
-- `infrastructure/` — external infrastructure (database connections).
+- `routes.rs` + `routes/` — HTTP routing root and per-resource handlers (`health.rs`, `wallpapers.rs`).
+- Domain modules (`wallpaper.rs` + `wallpaper/`, `category.rs` + `category/`) — `model.rs`, `service.rs`, `repository.rs` alongside a module root that declares its submodules.
+- `storage.rs` + `storage/` — object storage integrations (Cloudflare R2: `r2.rs`).
+- `infrastructure.rs` + `infrastructure/` — external infrastructure (database connections: `database.rs`).
 - `migrations/` — schema migrations.
 - `docs/` — architecture decisions and technical documentation.
 
