@@ -3,9 +3,19 @@ use serde_json::json;
 use tracing::{error, info};
 
 use crate::config::Config;
+use crate::error::AppError;
+use crate::routes;
 
 pub fn router() -> Router {
-    Router::new().route("/", get(health))
+    Router::new()
+        .route("/", get(health))
+        .nest("/v1", routes::api_router())
+        .fallback(not_found)
+}
+
+// NOTE: JSON-shaped 404 via AppError; axum's default fallback body is empty
+async fn not_found() -> AppError {
+    AppError::NotFound
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -53,4 +63,70 @@ pub async fn serve(config: &Config) -> std::io::Result<()> {
     axum::serve(listener, router())
         .with_graceful_shutdown(shutdown_signal())
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::router;
+
+    use axum::body::{Body, to_bytes};
+    use axum::http::{Request, StatusCode};
+    use serde_json::Value;
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    async fn call(uri: &str) -> (StatusCode, Value) {
+        let response = router()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("valid request"),
+            )
+            .await
+            .expect("response produced");
+
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), 1024)
+            .await
+            .expect("body read");
+        let value = serde_json::from_slice(&bytes).expect("valid JSON body");
+        (status, value)
+    }
+
+    #[tokio::test]
+    async fn root_keeps_original_response() {
+        let (status, body) = call("/").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            json!({ "name": "PeaceWave", "message": "PeaceWave API is running" }),
+        );
+    }
+
+    #[tokio::test]
+    async fn versioned_health_responds_200() {
+        let (status, _) = call("/v1/health").await;
+
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn versioned_health_body_is_status_ok() {
+        let (_, body) = call("/v1/health").await;
+
+        assert_eq!(body, json!({ "status": "ok" }));
+    }
+
+    #[tokio::test]
+    async fn unknown_route_returns_404_envelope() {
+        let (status, body) = call("/unknown").await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            body,
+            json!({ "error": { "code": "not_found", "message": "Resource not found" } }),
+        );
+    }
 }
